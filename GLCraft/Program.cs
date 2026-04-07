@@ -6,6 +6,7 @@ using FontStash.NET;
 using GLCraft.Fonts;
 using GLCraft.Fundamental;
 using GLCraft.GameObjects;
+using GLCraft.UI;
 using GLCraft.WorldGen;
 using Silk.NET.Core;
 using Silk.NET.Input;
@@ -56,9 +57,11 @@ class Program
     private static int fpsResetLimit = 20;
     private static int fpsResetCounter = 0;
     private static double fpsLast = 0f;
+    
+    //Loading
 
     //Optimization
-    private static int RenderDistance = 7;
+    private static int RenderDistance = 9;
     private static Vector2 LastActiveChunk = new Vector2(float.NaN, float.NaN);
 
     //paths
@@ -72,7 +75,7 @@ class Program
     
     private static float SprintSpeed = 2f;
     
-    private static int chunkAmount = 3;
+    private static int chunkAmount = 20;
     private static bool biggerOreGrowth = false;
     private static int moreOreGrowth = 0;
     private static int oreChance = 0;
@@ -103,6 +106,11 @@ class Program
 
     private static void OnClose()
     {
+        foreach (var chunk in chunks)
+        {
+            chunk.Dispose();
+        }
+
         foreach (var gameObject in gameObjects)
         {
             gameObject.Dispose();
@@ -110,11 +118,16 @@ class Program
 
         Skybox?.Dispose();
         FontRenderer?.Dispose();
+        Loader.Background.Dispose();
+        Loader.Slider.Dispose();
+        Loader.SliderBackground.Dispose();
     }
 
     private static unsafe void OnLoad()
     {
         seed = new Random().Next();
+        Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
+        
         ImageResult image = ImageResult.FromMemory(File.ReadAllBytes(Path.Combine(SPECIAL_RESOURCE_PATH, APP_LOGO)),
             ColorComponents.RedGreenBlueAlpha);
         RawImage icon = new RawImage(image.Width, image.Height, image.Data);
@@ -157,11 +170,23 @@ class Program
         
         AddBlocks();
 
-        CreateChunks(chunkAmount);
+        FontStash.SetFont(FontNormal);
+        FontStash.SetSize(36.0f);
+        FontStash.SetColour(GLFons.Rgba(255, 255, 255, 255));
 
         Width = _window.Size.X;
         Height = _window.Size.Y;
         Gl.Viewport(0, 0, (uint)_window.Size.X, (uint)_window.Size.Y);
+
+        var uishader = new Shader(Gl, GetShaderLocation("uishader", GLEnum.VertexShader),
+            GetShaderLocation("shader", GLEnum.FragmentShader));
+        var bgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "bg.png"));
+        var sliderbgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "sliderbg.png"));
+        var sliderTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "slider.png"));
+        Loader.Background = new Image(Gl, bgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width, ScaleY = Height});
+        Loader.Slider = new Image(Gl, sliderTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
+        Loader.SliderBackground = new Image(Gl, sliderbgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
+        Loader.CreateChunks(Gl, chunkAmount, ref chunks);
     }
 
     private static void AddBlocks()
@@ -177,6 +202,8 @@ class Program
         var iron = new Texture(Gl, Path.Combine(TEXTURE_PATH, "ironOre.png"));
         var gold = new Texture(Gl, Path.Combine(TEXTURE_PATH, "goldOre.png"));
         var diamond = new Texture(Gl, Path.Combine(TEXTURE_PATH, "diamondOre.png"));
+        var granite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "granite.png"));
+        var andesite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "andesite.png"));
         
         var axes = new Axes(Gl, solidShader, new Transform() { Position = new Vector3(0, 0.55f, 0) });
         gameObjects.Add(axes);
@@ -193,6 +220,8 @@ class Program
         var ironCube = new Cube(Gl, cubeShader, iron, new Transform(), true);
         var goldCube = new Cube(Gl, cubeShader, gold, new Transform(), true);
         var diamondCube = new Cube(Gl, cubeShader, diamond, new Transform(), true);
+        var graniteCube = new Cube(Gl, cubeShader, granite, new Transform(), true);
+        var andesiteCube = new Cube(Gl, cubeShader, andesite, new Transform(), true);
         
         gameObjects.Add(grassCube);
         gameObjects.Add(stoneCube);
@@ -203,6 +232,8 @@ class Program
         gameObjects.Add(ironCube);
         gameObjects.Add(goldCube);
         gameObjects.Add(diamondCube);
+        gameObjects.Add(graniteCube);
+        gameObjects.Add(andesiteCube);
         
         blockRenderers.Add(BlockType.GrassBlock, grassCube);
         blockRenderers.Add(BlockType.StoneBlock, stoneCube);
@@ -213,26 +244,10 @@ class Program
         blockRenderers.Add(BlockType.IronOre, ironCube);
         blockRenderers.Add(BlockType.GoldOre, goldCube);
         blockRenderers.Add(BlockType.DiamondOre, diamondCube);
+        blockRenderers.Add(BlockType.Granite, graniteCube);
+        blockRenderers.Add(BlockType.Andesite, andesiteCube);
     }
-
-    private static void CreateChunks(int amount)
-    {
-        chunks.Clear();
-        amount--;
-        Chunk spawn = new Chunk(Vector2.Zero, seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-        chunks.Add(spawn);
-
-        for (int x = -amount; x <= amount; x++)
-        {
-            for (int y = -amount; y <= amount; y++)
-            {
-                if (Math.Abs(x) + Math.Abs(y) > amount || (x == 0 && y == 0))
-                    continue;
-                Chunk chunk = new Chunk(new Vector2(x, y), seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-                chunks.Add(chunk);
-            }
-        }
-    }
+    
 
     private static uint GetColor(byte r, byte g, byte b, byte a)
     {
@@ -296,6 +311,23 @@ class Program
     {
         Gl.Enable(EnableCap.DepthTest);
         Gl.Clear((uint)(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit));
+
+        if (!Loader.FinishedLoading && Loader.StartedLoading)
+        {
+            var projectionUI = Matrix4x4.CreateOrthographic(Width, Height, 0.1f, 100f);
+            float onePercent = Loader.PercentageMaximum / 100f;
+            float currentPercent = (Loader.PercentageCurrent / onePercent + 1) / 100f;
+            float larped = (1 - currentPercent) * Width / 300 + currentPercent * Width / 3;
+            Loader.LoadChunk(ref chunks);
+            Loader.Slider.Render(projectionUI);
+            Loader.Slider.EditTransform(new Vector3((-larped / 2 + larped) - Width / 6f, 0,0), larped, Height / 10f);
+            Loader.SliderBackground.Render(projectionUI);
+            Loader.Background.Render(projectionUI);
+            Gl.Disable(EnableCap.DepthTest);
+            DrawLoadingScreenText();
+            return;
+        }
+        
         var view = Matrix4x4.CreateLookAt(CameraPosition, CameraPosition + CameraFront, CameraUp);
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(CameraZoom),
             (float)Width / Height, 0.1f, 200.0f);
@@ -311,9 +343,9 @@ class Program
         {
             if (!chunk.Render)
                 continue;
-            foreach (var batch in chunk.renderBatches)
+            foreach (var batch in chunk.RenderBatches)
             {
-                blockRenderers[(BlockType)batch.Key.BlockType].RenderInstanced(batch.Key.FaceMask, batch.Value, view, projection);
+                blockRenderers[batch.BlockType].RenderInstanced(batch.FaceMask, batch.InstanceBuffer, batch.InstanceCount, view, projection);
             }
         }
 
@@ -324,10 +356,19 @@ class Program
         Gl.DepthFunc(DepthFunction.Less);
 
         Gl.Disable(EnableCap.DepthTest);
+        DrawDebug(activeChunk, deltaTime);
+    }
+
+    private static void DrawLoadingScreenText()
+    {
         FontRenderer.SetProjection(Matrix4x4.CreateOrthographicOffCenter(0, Width, Height, 0, -1f, 1f));
-        FontStash.SetFont(FontNormal);
-        FontStash.SetSize(36.0f);
-        FontStash.SetColour(GLFons.Rgba(255, 255, 255, 255));
+        FontStash.DrawText(Width / 3f, Height / 1.7f, Loader.Message);
+        FontStash.DrawText(Width / 2.09f, Height / 1.97f, $"{Loader.PercentageCurrent}/{Loader.PercentageMaximum}");
+    }
+
+    private static void DrawDebug(Vector2 activeChunk, double deltaTime)
+    {
+        FontRenderer.SetProjection(Matrix4x4.CreateOrthographicOffCenter(0, Width, Height, 0, -1f, 1f));
         StringBuilder sb = new();
         sb.Append("X: ");
         sb.Append(Math.Round(CameraPosition.X, 2));
@@ -382,6 +423,9 @@ class Program
     {
         Width = size.X;
         Height = size.Y;
+        Loader.Background.EditTransform(new Vector3(0,0,0), Width, Height);
+        Loader.SliderBackground.EditTransform(new Vector3(0,0,0), Width / 2f, Height / 2f);
+        Loader.Slider.EditTransform(new Vector3(0,0,0), Width / 5f, Height /6f); //TODO: change to real values
         Gl.Viewport(size);
     }
 
@@ -397,10 +441,12 @@ class Program
                 break;
             case Key.Up:
                 seed = new Random().Next();
-                CreateChunks(chunkAmount);
+                Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
+                Loader.CreateChunks(Gl, chunkAmount, ref chunks);
                 break;
             case Key.Down:
-                CreateChunks(chunkAmount);
+                Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
+                Loader.CreateChunks(Gl, chunkAmount, ref chunks);
                 break;
             case Key.Left:
                 biggerOreGrowth = !biggerOreGrowth;
@@ -422,6 +468,8 @@ class Program
 
     private static unsafe void OnMouseMove(IMouse mouse, Vector2 position)
     {
+        if (!Loader.FinishedLoading)
+            return;
         var lookSensitivity = 0.08f;
         if (LastMousePosition == default)
         {

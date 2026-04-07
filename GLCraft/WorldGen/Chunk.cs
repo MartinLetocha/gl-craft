@@ -1,18 +1,33 @@
 using System.Numerics;
 using GLCraft.Fundamental;
+using Silk.NET.OpenGL;
 
 namespace GLCraft.WorldGen;
 
-public class Chunk
+public class Chunk : IDisposable
 {
+    public sealed class RenderBatch : IDisposable
+    {
+        public required BlockType BlockType { get; init; }
+        public required int FaceMask { get; init; }
+        public required BufferObject<Vector3> InstanceBuffer { get; init; }
+        public required uint InstanceCount { get; init; }
+
+        public void Dispose()
+        {
+            InstanceBuffer.Dispose();
+        }
+    }
+
     private int width = 16;
     private int height = 16;
     private int depth = -64;
+    private readonly GL _gl;
     public bool Render = true;
     public Vector2 LeftBottom;
     private Dictionary<Vector3, BlockType> transforms = new();
     private Dictionary<Vector3, int> visibleFaces = new();
-    public Dictionary<(int BlockType, int FaceMask), List<Vector3>> renderBatches = new();
+    public List<RenderBatch> RenderBatches { get; } = new();
     private Random random;
 
     private bool BiggerOreGrowth;
@@ -20,8 +35,9 @@ public class Chunk
     private int OreChance;
     private int Carbonizer;
 
-    public Chunk(Vector2 offset, int seed, bool oreGrowth, int moreOre, int _oreChance, int carbonizer)
+    public Chunk(GL gl, Vector2 offset, int seed, bool oreGrowth, int moreOre, int _oreChance, int carbonizer)
     {
+        _gl = gl;
         BiggerOreGrowth = oreGrowth;
         MoreOreGrowth = moreOre;
         OreChance = _oreChance;
@@ -35,6 +51,7 @@ public class Chunk
         int x = 0;
         int y = 0;
         Dictionary<Vector3, BlockType> ores = new();
+        Dictionary<Vector3, BlockType> stones = new();
         for (float i = -width / 2 + (int)offset.X + 0.5f; i < width / 2 + (int)offset.X +0.5f; i++)
         {
             for (float j = -height / 2 + (int)offset.Y +0.5f; j < height / 2 + (int)offset.Y +0.5f; j++)
@@ -64,7 +81,7 @@ public class Chunk
                     }
                     else
                     {
-                        transforms.Add(new Vector3(i, k, j), BlockType.StoneBlock);
+                        AddStone(i,k,j,ref stones);
                     }
                 }
 
@@ -79,9 +96,32 @@ public class Chunk
         {
             AttemptOreGrowth(ore.Key, ore.Value);
         }
+
+        foreach (var stone in stones)
+        {
+            AttemptStoneGrowth(stone.Key, stone.Value);
+        }
+        
         Rebuild();
     }
 
+    private void AttemptStoneGrowth(Vector3 position, BlockType type, int recursionDepth = 0)
+    {
+        if (!transforms.ContainsKey(position) || (transforms[position] != BlockType.StoneBlock && transforms[position] != type))
+            return;
+        int chance = (int)(40 * recursionDepth * 0.5f);
+        int generated = random.Next(1,101);
+        if (generated > chance)
+        {
+            transforms[position] = type;
+            AttemptStoneGrowth(position + new Vector3(1,0,0), type, recursionDepth + 1);
+            AttemptStoneGrowth(position + new Vector3(-1,0,0), type, recursionDepth + 1);
+            AttemptStoneGrowth(position + new Vector3(0,0,1), type, recursionDepth + 1);
+            AttemptStoneGrowth(position + new Vector3(0,0,-1), type, recursionDepth + 1);
+            AttemptStoneGrowth(position + new Vector3(0,1,0), type, recursionDepth + 1);
+            AttemptStoneGrowth(position + new Vector3(0,-1,0), type, recursionDepth + 1);
+        }
+    }
     private void AttemptOreGrowth(Vector3 position, BlockType type, int recursionDepth = 0)
     {
         if (!transforms.ContainsKey(position) || (transforms[position] != BlockType.StoneBlock && transforms[position] != type))
@@ -114,6 +154,30 @@ public class Chunk
             AttemptOreGrowth(position + new Vector3(0,0,-1), type, recursionDepth + 1);
             AttemptOreGrowth(position + new Vector3(0,1,0), type, recursionDepth + 1);
             AttemptOreGrowth(position + new Vector3(0,-1,0), type, recursionDepth + 1);
+        }
+    }
+
+    private void AddStone(float x, int y, float z, ref Dictionary<Vector3, BlockType> stones)
+    {
+        var location = new Vector3(x, y, z);
+        int stone = random.Next(1,501);
+        if (stone == 1)
+        {
+            int variant = random.Next(1,3);
+            if (variant == 1)
+            {
+                transforms.Add(location, BlockType.Granite);
+                stones.Add(location, BlockType.Granite);
+            }
+            else
+            {
+                transforms.Add(location, BlockType.Andesite);
+                stones.Add(location, BlockType.Andesite);
+            }
+        }
+        else
+        {
+            transforms.Add(location, BlockType.StoneBlock);
         }
     }
     private void AddOre(int oreChance, float x, int y, float z, ref Dictionary<Vector3, BlockType> ores)
@@ -203,7 +267,13 @@ public class Chunk
     
     private void RebuildRenderBatches()
     {
-        renderBatches.Clear();
+        foreach (var batch in RenderBatches)
+        {
+            batch.Dispose();
+        }
+
+        RenderBatches.Clear();
+        Dictionary<(BlockType BlockType, int FaceMask), List<Vector3>> positionsByBatch = new();
 
         foreach (var block in transforms)
         {
@@ -218,14 +288,25 @@ public class Chunk
                 continue;
             }
 
-            var key = ((int)block.Value, faceMask);
-            if (!renderBatches.TryGetValue(key, out var positions))
+            var key = (block.Value, faceMask);
+            if (!positionsByBatch.TryGetValue(key, out var positions))
             {
                 positions = new List<Vector3>();
-                renderBatches.Add(key, positions);
+                positionsByBatch.Add(key, positions);
             }
 
             positions.Add(block.Key);
+        }
+
+        foreach (var batch in positionsByBatch)
+        {
+            RenderBatches.Add(new RenderBatch
+            {
+                BlockType = batch.Key.BlockType,
+                FaceMask = batch.Key.FaceMask,
+                InstanceBuffer = new BufferObject<Vector3>(_gl, batch.Value.ToArray(), BufferTargetARB.ArrayBuffer),
+                InstanceCount = (uint)batch.Value.Count
+            });
         }
     }
     private int GetVisibleFaceMask(Vector3 center)
@@ -274,5 +355,15 @@ public class Chunk
         }
 
         return result;
+    }
+
+    public void Dispose()
+    {
+        foreach (var batch in RenderBatches)
+        {
+            batch.Dispose();
+        }
+
+        RenderBatches.Clear();
     }
 }

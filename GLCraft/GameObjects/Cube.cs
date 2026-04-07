@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
 using GLCraft.Fundamental;
 using Silk.NET.OpenGL;
 using Shader = GLCraft.Fundamental.Shader;
@@ -127,14 +126,12 @@ public class Cube : GameObject
     {
         public required BufferObject<float> Vbo { get; init; }
         public required BufferObject<uint> Ebo { get; init; }
-        public required BufferObject<Vector3> InstanceVbo { get; init; }
         public required VertexArrayObject<float, uint> Vao { get; init; }
         public required uint VertexCount { get; init; }
 
         public void Dispose()
         {
             Vao.Dispose();
-            InstanceVbo.Dispose();
             Ebo.Dispose();
             Vbo.Dispose();
         }
@@ -249,17 +246,10 @@ public class Cube : GameObject
     {
         var ebo = new BufferObject<uint>(Gl, indices, BufferTargetARB.ElementArrayBuffer);
         var vbo = new BufferObject<float>(Gl, vertices, BufferTargetARB.ArrayBuffer);
-        var instanceVbo = new BufferObject<Vector3>(Gl, new Vector3[1], BufferTargetARB.ArrayBuffer);
         var vao = new VertexArrayObject<float, uint>(Gl, vbo, ebo);
 
         vao.VertexAttributePointer(0, 3, VertexAttribPointerType.Float, FloatsPerVertex, 0);
         vao.VertexAttributePointer(1, 2, VertexAttribPointerType.Float, FloatsPerVertex, 3);
-
-        vao.Bind();
-        instanceVbo.Bind();
-        Gl.VertexAttribPointer(2, 3, VertexAttribPointerType.Float, false, (uint)Marshal.SizeOf<Vector3>(), (void*)0);
-        Gl.EnableVertexAttribArray(2);
-        Gl.VertexAttribDivisor(2, 1);
 
         Gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
         Gl.BindVertexArray(0);
@@ -268,7 +258,6 @@ public class Cube : GameObject
         {
             Vbo = vbo,
             Ebo = ebo,
-            InstanceVbo = instanceVbo,
             Vao = vao,
             VertexCount = (uint)(vertices.Length / FloatsPerVertex)
         };
@@ -298,9 +287,9 @@ public class Cube : GameObject
         Gl.DrawArrays(PrimitiveType.Triangles, 0, _vertexCount);
     }
 
-    public void RenderInstanced(int faceMask, List<Vector3> positions, Matrix4x4 view, Matrix4x4 projection)
+    public unsafe void RenderInstanced(int faceMask, BufferObject<Vector3> instanceBuffer, uint instanceCount, Matrix4x4 view, Matrix4x4 projection)
     {
-        if (positions.Count == 0)
+        if (instanceCount == 0)
         {
             return;
         }
@@ -312,9 +301,12 @@ public class Cube : GameObject
             _meshCache.Add(faceMask, mesh);
         }
 
-        mesh.InstanceVbo.SetData(CollectionsMarshal.AsSpan(positions), BufferUsageARB.DynamicDraw);
-
         mesh.Vao.Bind();
+        instanceBuffer.Bind();
+        Gl.VertexAttribPointer(2, 3, VertexAttribPointerType.Float, false, 3u * sizeof(float), (void*)0);
+        Gl.EnableVertexAttribArray(2);
+        Gl.VertexAttribDivisor(2, 1);
+
         Shader.Use();
         Texture.Bind();
 
@@ -322,7 +314,7 @@ public class Cube : GameObject
         Shader.SetUniform("uView", view);
         Shader.SetUniform("uProjection", projection);
 
-        Gl.DrawArraysInstanced(PrimitiveType.Triangles, 0, mesh.VertexCount, (uint)positions.Count);
+        Gl.DrawArraysInstanced(PrimitiveType.Triangles, 0, mesh.VertexCount, instanceCount);
     }
 
     public override unsafe void Render(Matrix4x4 model, Matrix4x4 view, Matrix4x4 projection)

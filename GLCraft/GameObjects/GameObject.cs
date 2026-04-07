@@ -22,9 +22,16 @@ public abstract class GameObject : IDisposable
     public abstract void Render(Matrix4x4 model, Matrix4x4 view, Matrix4x4 projection);
     public abstract void RegenerateFaces(int faceMask);
 
-    public void EditTransform(Vector3 position)
+    public virtual void Render(Matrix4x4 projection)
+    {
+        
+    }
+
+    public void EditTransform(Vector3 position, float scalex, float scaley)
     {
         Transform.Position = position;
+        Transform.ScaleX = scalex;
+        Transform.ScaleY = scaley;
     }
     public virtual void Dispose()
     {

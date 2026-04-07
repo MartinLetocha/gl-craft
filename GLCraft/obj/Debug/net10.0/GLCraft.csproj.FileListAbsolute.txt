@@ -50,3 +50,4 @@ C:\Users\marti\RiderProjects\GLCraft\GLCraft\bin\Debug\net10.0\SilkyNvg.Text.dll
 C:\Users\marti\RiderProjects\GLCraft\GLCraft\bin\Debug\net10.0\SilkyNvg.Tools.dll
 C:\Users\marti\RiderProjects\GLCraft\GLCraft\bin\Debug\net10.0\SilkyNvg.Transforms.dll
 C:\Users\marti\RiderProjects\GLCraft\GLCraft\bin\Debug\net10.0\NoiseDotNet.dll
+C:\Users\marti\RiderProjects\GLCraft\GLCraft\obj\Debug\net10.0\GLCraft.sourcelink.json
