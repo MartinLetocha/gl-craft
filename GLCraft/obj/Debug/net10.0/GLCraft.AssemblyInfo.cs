@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("GLCraft")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1dfdc3df7a025320006fa0adb2968ab38e1fe82a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+85ff5a8d1a42f921f4fccf192d2b5186d614656f")]
 [assembly: System.Reflection.AssemblyProductAttribute("GLCraft")]
 [assembly: System.Reflection.AssemblyTitleAttribute("GLCraft")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

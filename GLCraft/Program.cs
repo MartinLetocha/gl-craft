@@ -26,6 +26,7 @@ class Program
     private static IWindow _window;
     private static GL Gl;
     private static IKeyboard primaryKeyboard;
+    private static IMouse primaryMouse;
 
     private static int Width = 800;
     private static int Height = 700;
@@ -57,8 +58,6 @@ class Program
     private static int fpsResetLimit = 20;
     private static int fpsResetCounter = 0;
     private static double fpsLast = 0f;
-    
-    //Loading
 
     //Optimization
     private static int RenderDistance = 9;
@@ -74,8 +73,10 @@ class Program
     private static int seed;
     
     private static float SprintSpeed = 2f;
-    
-    private static int chunkAmount = 20;
+
+    private static Vector3 commandBlockLocation = Vector3.Zero;
+    private static float commandBlockActiveRadius = 5f;
+    private static int chunkAmount = 1;
     private static bool biggerOreGrowth = false;
     private static int moreOreGrowth = 0;
     private static int oreChance = 0;
@@ -126,6 +127,7 @@ class Program
     private static unsafe void OnLoad()
     {
         seed = new Random().Next();
+        Loader.Message = "Initializing GLCraft...";
         Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
         
         ImageResult image = ImageResult.FromMemory(File.ReadAllBytes(Path.Combine(SPECIAL_RESOURCE_PATH, APP_LOGO)),
@@ -140,19 +142,19 @@ class Program
             primaryKeyboard.KeyDown += KeyDown;
         }
 
-        foreach (var t in input.Mice)
-        {
-            t.Cursor.CursorMode = CursorMode.Raw;
-            t.MouseMove += OnMouseMove;
-            t.Scroll += OnMouseWheel;
-        }
+        primaryMouse = input.Mice.FirstOrDefault();
+        primaryMouse.Cursor.CursorMode = CursorMode.Raw;
+        primaryMouse.MouseMove += OnMouseMove;
+        primaryMouse.Scroll += OnMouseWheel;
+        primaryMouse.MouseUp += OnMouseClick;
 
         Gl = GL.GetApi(_window);
 
+        UIHandler.Gl = Gl;
         FontRenderer = new GLFons(Gl);
         FontStash = FontRenderer.Create(512, 512, (int)FonsFlags.ZeroTopleft);
         FontNormal = FontStash.AddFont("testFont",
-            "C:\\Users\\marti\\RiderProjects\\GLCraft\\GLCraft\\Fonts\\VERDANAI.TTF", 0);
+            "C:\\Users\\marti\\RiderProjects\\GLCraft\\GLCraft\\Fonts\\Verdana.ttf", 0);
 
         uint fontColourRed = GetColor(255, 0, 0, 255);
 
@@ -177,16 +179,35 @@ class Program
         Width = _window.Size.X;
         Height = _window.Size.Y;
         Gl.Viewport(0, 0, (uint)_window.Size.X, (uint)_window.Size.Y);
-
+        
         var uishader = new Shader(Gl, GetShaderLocation("uishader", GLEnum.VertexShader),
             GetShaderLocation("shader", GLEnum.FragmentShader));
+
+        var keyTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "EKey.png"));
+        var commandBg = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "commandbg.png"));
+        UIHandler.Key = new Image(Gl, keyTexture, uishader, new Transform() {Position = new Vector3(Width / 2.1f, 0,0), ScaleX = Height / 15f, ScaleY = Height / 15f, Rotation = Quaternion.CreateFromAxisAngle(new Vector3(0,0,1), -90 * (float)Math.PI / 180)});
+        UIHandler.Background = new Image(Gl, commandBg, uishader, new Transform(){Position = Vector3.Zero, ScaleX = Width / 1.2f, ScaleY = Height / 1.2f});
+        
         var bgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "bg.png"));
         var sliderbgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "sliderbg.png"));
         var sliderTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "slider.png"));
         Loader.Background = new Image(Gl, bgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width, ScaleY = Height});
         Loader.Slider = new Image(Gl, sliderTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
         Loader.SliderBackground = new Image(Gl, sliderbgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
-        Loader.CreateChunks(Gl, chunkAmount, ref chunks);
+        Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref commandBlockLocation);
+    }
+
+    private static void OnMouseClick(IMouse arg1, MouseButton arg2)
+    {
+        if (UIHandler.BlockCameraAndMovement)
+        {
+            if (arg2 == MouseButton.Left)
+            {
+                UIHandler.CheckClick(arg1.Position);
+            }
+            return;
+        }
+        //check what block the mouse pointed at and destroy it
     }
 
     private static void AddBlocks()
@@ -204,9 +225,10 @@ class Program
         var diamond = new Texture(Gl, Path.Combine(TEXTURE_PATH, "diamondOre.png"));
         var granite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "granite.png"));
         var andesite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "andesite.png"));
+        var command = new Texture(Gl, Path.Combine(TEXTURE_PATH, "commandBlock.png"));
         
-        var axes = new Axes(Gl, solidShader, new Transform() { Position = new Vector3(0, 0.55f, 0) });
-        gameObjects.Add(axes);
+        //var axes = new Axes(Gl, solidShader, new Transform() { Position = new Vector3(0, 0f, 0) });
+        //gameObjects.Add(axes);
         
         var cubeShader = new Shader(Gl, GetShaderLocation("instanced", GLEnum.VertexShader),
             GetShaderLocation("shader", GLEnum.FragmentShader));
@@ -222,6 +244,7 @@ class Program
         var diamondCube = new Cube(Gl, cubeShader, diamond, new Transform(), true);
         var graniteCube = new Cube(Gl, cubeShader, granite, new Transform(), true);
         var andesiteCube = new Cube(Gl, cubeShader, andesite, new Transform(), true);
+        var commandCube = new Cube(Gl, cubeShader, command, new Transform(), true);
         
         gameObjects.Add(grassCube);
         gameObjects.Add(stoneCube);
@@ -234,6 +257,7 @@ class Program
         gameObjects.Add(diamondCube);
         gameObjects.Add(graniteCube);
         gameObjects.Add(andesiteCube);
+        gameObjects.Add(commandCube);
         
         blockRenderers.Add(BlockType.GrassBlock, grassCube);
         blockRenderers.Add(BlockType.StoneBlock, stoneCube);
@@ -246,6 +270,7 @@ class Program
         blockRenderers.Add(BlockType.DiamondOre, diamondCube);
         blockRenderers.Add(BlockType.Granite, graniteCube);
         blockRenderers.Add(BlockType.Andesite, andesiteCube);
+        blockRenderers.Add(BlockType.CommandBlock, commandCube);
     }
     
 
@@ -256,6 +281,8 @@ class Program
 
     private static void OnUpdate(double deltaTime)
     {
+        if (UIHandler.BlockCameraAndMovement)
+            return;
         var moveSpeed = 2.5f * (float)deltaTime;
         if (primaryKeyboard.IsKeyPressed(Key.ShiftLeft))
         {
@@ -348,8 +375,13 @@ class Program
                 blockRenderers[batch.BlockType].RenderInstanced(batch.FaceMask, batch.InstanceBuffer, batch.InstanceCount, view, projection);
             }
         }
-
-        gameObjects[0].Render(view, projection);
+        var projectionUILate = Matrix4x4.CreateOrthographic(Width, Height, 0.1f, 100f);
+        if (UIHandler.BlockCameraAndMovement)
+        {
+            UIHandler.DrawCommandBlockUI(projectionUILate, ref FontRenderer, ref FontStash, Width, Height);
+        }
+        DrawPersistentUI(projectionUILate);
+        //gameObjects[0].Render(view, projection);
 
         Gl.DepthFunc(DepthFunction.Lequal);
         Skybox.Render(view, projection);
@@ -357,6 +389,15 @@ class Program
 
         Gl.Disable(EnableCap.DepthTest);
         DrawDebug(activeChunk, deltaTime);
+    }
+
+    private static void DrawPersistentUI(Matrix4x4 projectionUI)
+    {
+        double length = Math.Sqrt(Math.Pow(CameraPosition.X - commandBlockLocation.X, 2) + Math.Pow(CameraPosition.Y - commandBlockLocation.Y,2) + Math.Pow(CameraPosition.Z - commandBlockLocation.Z,2));
+        if (length < commandBlockActiveRadius)
+        {
+            UIHandler.Key.Render(projectionUI);
+        }
     }
 
     private static void DrawLoadingScreenText()
@@ -426,6 +467,8 @@ class Program
         Loader.Background.EditTransform(new Vector3(0,0,0), Width, Height);
         Loader.SliderBackground.EditTransform(new Vector3(0,0,0), Width / 2f, Height / 2f);
         Loader.Slider.EditTransform(new Vector3(0,0,0), Width / 5f, Height /6f); //TODO: change to real values
+        UIHandler.Key.EditTransform(new Vector3(Width / 2.1f, 0,0), Height / 15f, Height / 15f);
+        UIHandler.Background.EditTransform(Vector3.Zero, Width / 1.2f, Height / 1.2f);
         Gl.Viewport(size);
     }
 
@@ -442,17 +485,24 @@ class Program
             case Key.Up:
                 seed = new Random().Next();
                 Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-                Loader.CreateChunks(Gl, chunkAmount, ref chunks);
+                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref commandBlockLocation);
                 break;
             case Key.Down:
                 Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-                Loader.CreateChunks(Gl, chunkAmount, ref chunks);
+                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref commandBlockLocation);
                 break;
             case Key.Left:
                 biggerOreGrowth = !biggerOreGrowth;
                 break;
             case Key.Right:      //   orechance/moreore/biggerore/carbonizer
                 moreOreGrowth++; //TODO: 10/10/True/4 should be cap
+                break;
+            case Key.E:
+                double length = Math.Sqrt(Math.Pow(CameraPosition.X - commandBlockLocation.X, 2) + Math.Pow(CameraPosition.Y - commandBlockLocation.Y,2) + Math.Pow(CameraPosition.Z - commandBlockLocation.Z,2));
+                if (length < commandBlockActiveRadius)
+                {
+                    LastMousePosition = UIHandler.HandleCommandBlockUI(primaryMouse, Width, Height, LastMousePosition);
+                }
                 break;
             case Key.Number0:
                 oreChance++;
@@ -468,7 +518,7 @@ class Program
 
     private static unsafe void OnMouseMove(IMouse mouse, Vector2 position)
     {
-        if (!Loader.FinishedLoading)
+        if (!Loader.FinishedLoading || UIHandler.BlockCameraAndMovement)
             return;
         var lookSensitivity = 0.08f;
         if (LastMousePosition == default)

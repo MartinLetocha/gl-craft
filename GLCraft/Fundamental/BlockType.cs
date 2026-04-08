@@ -13,5 +13,6 @@ public enum BlockType
     GoldOre = 8,
     DiamondOre = 9,
     Granite = 10,
-    Andesite = 11
+    Andesite = 11,
+    CommandBlock = 12,
 }

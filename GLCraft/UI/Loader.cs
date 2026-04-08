@@ -36,7 +36,7 @@ public static class Loader
         carbonizer = c;
     }
     
-    public static void CreateChunks(GL GlP, int amount, ref List<Chunk> chunks)
+    public static void CreateChunks(GL GlP, int amount, ref List<Chunk> chunks, ref Vector3 commandBlockLocation)
     {
         Gl = GlP;
         StartedLoading = true;
@@ -61,16 +61,22 @@ public static class Loader
         chunkAmount = amount;
         Chunk spawn = new Chunk(Gl, Vector2.Zero, seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
         chunks.Add(spawn);
+        commandBlockLocation = new Vector3(0.5f, GetHeightCommand(new Vector2(0.5f,0.5f),seed) + 1f, 0.5f);
         PercentageCurrent++;
     }
 
     public static void LoadChunk(ref List<Chunk> chunks)
     {
         Message = "Loading chunks...";
-        if (PercentageCurrent >= 300)
+        if (PercentageCurrent >= 600)
+        {
+            Message = "Has to be done soon...";
+        }
+        else if (PercentageCurrent >= 300)
         {
             Message = "This is taking a while...";
         }
+        
         LoadChunkLoop(ref chunks);
         
         //show UI
@@ -105,5 +111,25 @@ public static class Loader
 
             cY = -chunkAmount;
         }
+    }
+    
+    private static float GetHeightCommand(Vector2 location, int seed)
+    {
+        int sampleCount = 1;
+        float[] xCoords = new float[sampleCount];
+        float[] yCoords = new float[sampleCount];
+        xCoords[0] = location.X;
+        yCoords[0] = location.Y;
+        int index = 0;
+        float[] output = new float[sampleCount];
+        NoiseDotNet.NoiseSettings settings = new(xFreq: 0.1f, yFreq: 0.1f, seed: seed);
+
+        NoiseDotNet.Noise.GradientNoise2D(
+            xCoords: xCoords,
+            yCoords: yCoords,
+            output: output,
+            settings);
+        
+        return output[0];
     }
 }

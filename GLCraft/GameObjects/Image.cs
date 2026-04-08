@@ -51,6 +51,10 @@ public class Image : GameObject
         throw new NotImplementedException();
     }
 
+    public Transform GetTransform()
+    {
+        return Transform;
+    }
     public override unsafe void Render(Matrix4x4 projection)
     {
         Vao.Bind();

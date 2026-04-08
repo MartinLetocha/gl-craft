@@ -63,6 +63,10 @@ public class Chunk : IDisposable
                 {
                     float upgrade = OreChance / 4f;
                     int oreChance = WeightedRandom(1, 5, [96 - OreChance, 1 + upgrade, 1 + upgrade, 1 + upgrade, 1 + upgrade]);
+                    if (i == 0.5f && j == 0.5f && k == bheight)
+                    {
+                        transforms.Add(new Vector3(i, k + 1, j), BlockType.CommandBlock);
+                    }
                     if (k == bheight)
                     {
                         transforms.Add(new Vector3(i, k, j), BlockType.GrassBlock);
