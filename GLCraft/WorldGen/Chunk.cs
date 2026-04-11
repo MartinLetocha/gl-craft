@@ -254,6 +254,20 @@ public class Chunk : IDisposable
         return output;
     }
 
+    public bool HasBlock(Vector3 position)
+    {
+        bool found = transforms.TryGetValue(position, out var block);
+        if (!found)
+            return false;
+        return true;
+    }
+    public BlockType RemoveBlock(Vector3 position)
+    {
+        BlockType block = transforms[position];
+        transforms.Remove(position);
+        return block;
+    }
+
     public void Rebuild()
     {
         RebuildVisibleFaceCache();

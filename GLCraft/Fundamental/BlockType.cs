@@ -15,4 +15,6 @@ public enum BlockType
     Granite = 10,
     Andesite = 11,
     CommandBlock = 12,
+    Log = 13,
+    WoodBlock = 14,
 }

@@ -13,6 +13,7 @@ public static class UIHandler
     public static Image Key;
     public static bool BlockCameraAndMovement = false;
     public static GL Gl;
+    public static List<Button> Buttons = new List<Button>();
 
     private static int click = 0;
 
@@ -36,16 +37,24 @@ public static class UIHandler
 
     public static void CheckClick(Vector2 location)
     {
-        //if clicked ->
-        click++;
+        foreach (var button in Buttons)
+        {
+            if (location.X > button.Position.X && location.X < button.Position.X + button.Dimension.X &&
+                location.Y > button.Position.Y && location.Y < button.Position.Y + button.Dimension.Y)
+            {
+                click++;
+            }
+        }
     }
 
     public static void DrawCommandBlockUI(Matrix4x4 projectionMatrix, ref GLFons FontRenderer, ref Fontstash FontStash, int Width, int Height)
     {
         Background.Render(projectionMatrix);
-        Gl.Disable(EnableCap.DepthTest);
+        foreach (var button in Buttons)
+        {
+            button.BackgroundImage.Render(projectionMatrix);
+        }
         FontRenderer.SetProjection(Matrix4x4.CreateOrthographicOffCenter(0, Width, Height, 0, -1f, 1f));
         FontStash.DrawText(Width / 2f, Height / 2f, click.ToString());
-        Gl.Enable(EnableCap.DepthTest);
     }
 }

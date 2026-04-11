@@ -36,7 +36,7 @@ public static class Loader
         carbonizer = c;
     }
     
-    public static void CreateChunks(GL GlP, int amount, ref List<Chunk> chunks, ref Vector3 commandBlockLocation)
+    public static void CreateChunks(GL GlP, int amount, ref List<Chunk> chunks, ref List<Vector2> locations, ref Vector3 commandBlockLocation)
     {
         Gl = GlP;
         StartedLoading = true;
@@ -61,11 +61,12 @@ public static class Loader
         chunkAmount = amount;
         Chunk spawn = new Chunk(Gl, Vector2.Zero, seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
         chunks.Add(spawn);
+        locations.Add(spawn.LeftBottom);
         commandBlockLocation = new Vector3(0.5f, GetHeightCommand(new Vector2(0.5f,0.5f),seed) + 1f, 0.5f);
         PercentageCurrent++;
     }
 
-    public static void LoadChunk(ref List<Chunk> chunks)
+    public static void LoadChunk(ref List<Chunk> chunks, ref List<Vector2> locations)
     {
         Message = "Loading chunks...";
         if (PercentageCurrent >= 600)
@@ -77,7 +78,7 @@ public static class Loader
             Message = "This is taking a while...";
         }
         
-        LoadChunkLoop(ref chunks);
+        LoadChunkLoop(ref chunks, ref locations);
         
         //show UI
         
@@ -89,7 +90,7 @@ public static class Loader
         }
     }
 
-    private static void LoadChunkLoop(ref List<Chunk> chunks)
+    private static void LoadChunkLoop(ref List<Chunk> chunks, ref List<Vector2> locations)
     {
         for (; cX <= chunkAmount; cX++)
         {
@@ -104,6 +105,7 @@ public static class Loader
 
                 Chunk chunk = new Chunk(Gl, new Vector2(x, y), seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
                 chunks.Add(chunk);
+                locations.Add(chunk.LeftBottom);
                 PercentageCurrent++;
                 cY++;
                 return;

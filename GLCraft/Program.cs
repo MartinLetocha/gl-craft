@@ -15,6 +15,7 @@ using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using SilkyNvg;
 using StbImageSharp;
+using Button = GLCraft.UI.Button;
 using Shader = GLCraft.Fundamental.Shader;
 using Texture = GLCraft.Fundamental.Texture;
 
@@ -22,6 +23,11 @@ namespace GLCraft;
 
 class Program
 {
+    private const int NearbyBlockSearchRadius = 3;
+    private const int MaxNearbyBlocks = 2 + 6 * ((NearbyBlockSearchRadius * 2 + 1) * (NearbyBlockSearchRadius * 2 + 1));
+    private const float CommandBlockActiveRadius = 5f;
+    private const float CommandBlockActiveRadiusSquared = 25f;
+
     //Base
     private static IWindow _window;
     private static GL Gl;
@@ -30,6 +36,8 @@ class Program
 
     private static int Width = 800;
     private static int Height = 700;
+    private static Matrix4x4 UiProjection;
+    private static Matrix4x4 FontProjection;
     
     //Camera
     private static Vector3 CameraPosition = new Vector3(0.0f, 0.0f, 3.0f);
@@ -48,6 +56,7 @@ class Program
     private static List<GameObject> gameObjects = new List<GameObject>();
     private static Dictionary<BlockType, Cube> blockRenderers = new();
     private static List<Chunk> chunks = new();
+    private static List<Vector2> chunkPositions = new();
     
     private static Skybox Skybox;
 
@@ -74,13 +83,22 @@ class Program
     
     private static float SprintSpeed = 2f;
 
+    private static Dictionary<BlockType, int> Resources = new Dictionary<BlockType, int>();
+
     private static Vector3 commandBlockLocation = Vector3.Zero;
-    private static float commandBlockActiveRadius = 5f;
-    private static int chunkAmount = 1;
+    private static int chunkAmount = 20;
     private static bool biggerOreGrowth = false;
     private static int moreOreGrowth = 0;
     private static int oreChance = 0;
     private static int carbonizer = 1;
+    
+    //collision detection
+    private static List<Vector3> NearbyBlocks = new List<Vector3>(MaxNearbyBlocks);
+    private static List<int> NearbyBlockChunks = new List<int>(MaxNearbyBlocks);
+    private static HashSet<Vector3> NearbyBlockSet = new HashSet<Vector3>();
+    //private static List<Vector3> Ray = new List<Vector3>(64);
+    //private static Ray RayObject;
+    private static readonly StringBuilder DebugTextBuilder = new(64);
 
     static void Main(string[] args)
     {
@@ -118,6 +136,7 @@ class Program
         }
 
         Skybox?.Dispose();
+        //RayObject?.Dispose();
         FontRenderer?.Dispose();
         Loader.Background.Dispose();
         Loader.Slider.Dispose();
@@ -175,9 +194,16 @@ class Program
         FontStash.SetFont(FontNormal);
         FontStash.SetSize(36.0f);
         FontStash.SetColour(GLFons.Rgba(255, 255, 255, 255));
+        
+        foreach (BlockType block in (BlockType[]) Enum.GetValues(typeof(BlockType)))
+        {
+            Resources.Add(block, 0);
+        }
+
 
         Width = _window.Size.X;
         Height = _window.Size.Y;
+        UpdateProjectionMatrices();
         Gl.Viewport(0, 0, (uint)_window.Size.X, (uint)_window.Size.Y);
         
         var uishader = new Shader(Gl, GetShaderLocation("uishader", GLEnum.VertexShader),
@@ -185,8 +211,14 @@ class Program
 
         var keyTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "EKey.png"));
         var commandBg = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "commandbg.png"));
+        var btnBg = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "btnbg.png"));
         UIHandler.Key = new Image(Gl, keyTexture, uishader, new Transform() {Position = new Vector3(Width / 2.1f, 0,0), ScaleX = Height / 15f, ScaleY = Height / 15f, Rotation = Quaternion.CreateFromAxisAngle(new Vector3(0,0,1), -90 * (float)Math.PI / 180)});
         UIHandler.Background = new Image(Gl, commandBg, uishader, new Transform(){Position = Vector3.Zero, ScaleX = Width / 1.2f, ScaleY = Height / 1.2f});
+        float btnX = Width / 8f;
+        float btnY = Height / 13f;
+        Image btn = new Image(Gl, btnBg, uishader,
+            new Transform() { Position = new Vector3(0, 0, 0), ScaleX = btnX, ScaleY = btnY });
+        UIHandler.Buttons.Add(new Button(0, btn, "Click me!", new Vector2(Width / 2f - btnX / 2f, Height / 2f - btnY / 2f), new Vector2(btnX, btnY)));
         
         var bgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "bg.png"));
         var sliderbgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "sliderbg.png"));
@@ -194,11 +226,14 @@ class Program
         Loader.Background = new Image(Gl, bgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width, ScaleY = Height});
         Loader.Slider = new Image(Gl, sliderTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
         Loader.SliderBackground = new Image(Gl, sliderbgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
-        Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref commandBlockLocation);
+        Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref chunkPositions, ref commandBlockLocation);
     }
 
     private static void OnMouseClick(IMouse arg1, MouseButton arg2)
     {
+        if (!Loader.FinishedLoading)
+            return;
+
         if (UIHandler.BlockCameraAndMovement)
         {
             if (arg2 == MouseButton.Left)
@@ -207,8 +242,75 @@ class Program
             }
             return;
         }
-        //check what block the mouse pointed at and destroy it
+
+        //Ray.Clear();
+        Vector3? hitBlock = null;
+        int hitChunkIndex = -1;
+        const float rayDistance = 5f;
+        const float rayStep = 0.1f;
+
+        for (float i = 0; i <= rayDistance; i += rayStep)
+        {
+            var raycastPoint = CameraPosition + i * CameraFront;
+            //Ray.Add(raycastPoint);
+
+            for (var index = 0; index < NearbyBlocks.Count; index++)
+            {
+                var nearbyBlock = NearbyBlocks[index];
+                if (PointInsideBlock(raycastPoint, nearbyBlock))
+                {
+                    hitBlock = nearbyBlock;
+                    hitChunkIndex = NearbyBlockChunks[index];
+                    if(chunks[hitChunkIndex].HasBlock(hitBlock.Value))
+                        goto RaycastFinished;
+                }
+            }
+        }
+
+        RaycastFinished:
+        //UpdateDebugRay();
+        
+        if (arg2 == MouseButton.Left && hitBlock.HasValue && hitChunkIndex >= 0)
+        {
+            if (chunks[hitChunkIndex].HasBlock(hitBlock.Value))
+            {
+                Resources[chunks[hitChunkIndex].RemoveBlock(hitBlock.Value)]++;
+                chunks[hitChunkIndex].Rebuild();
+            }
+        }
     }
+
+    private static bool PointInsideBlock(Vector3 point, Vector3 blockCenter)
+    {
+        const float halfBlockSize = 0.5f;
+        return blockCenter.X - halfBlockSize < point.X && point.X < blockCenter.X + halfBlockSize &&
+               blockCenter.Y - halfBlockSize < point.Y && point.Y < blockCenter.Y + halfBlockSize &&
+               blockCenter.Z - halfBlockSize < point.Z && point.Z < blockCenter.Z + halfBlockSize;
+    }
+
+    // private static void UpdateDebugRay()
+    // {
+    //     float[] vertexBuffer = new float[Ray.Count * 7];
+    //     uint[] indexBuffer = new uint[Ray.Count];
+    //
+    //     for (var index = 0; index < Ray.Count; index++)
+    //     {
+    //         var rayPoint = Ray[index];
+    //         int vertexOffset = index * 7;
+    //
+    //         vertexBuffer[vertexOffset] = rayPoint.X;
+    //         vertexBuffer[vertexOffset + 1] = rayPoint.Y;
+    //         vertexBuffer[vertexOffset + 2] = rayPoint.Z;
+    //         vertexBuffer[vertexOffset + 3] = 1f;
+    //         vertexBuffer[vertexOffset + 4] = 0f;
+    //         vertexBuffer[vertexOffset + 5] = 0f;
+    //         vertexBuffer[vertexOffset + 6] = 1f;
+    //         indexBuffer[index] = (uint)index;
+    //     }
+    //
+    //     RayObject.FillBuffers(vertexBuffer, indexBuffer);
+    //     RayObject.CreateBuffers();
+    // }
 
     private static void AddBlocks()
     {
@@ -226,6 +328,8 @@ class Program
         var granite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "granite.png"));
         var andesite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "andesite.png"));
         var command = new Texture(Gl, Path.Combine(TEXTURE_PATH, "commandBlock.png"));
+        var log = new Texture(Gl, Path.Combine(TEXTURE_PATH, "woodLog.png"));
+        var wood = new Texture(Gl, Path.Combine(TEXTURE_PATH, "woodBlock.png"));
         
         //var axes = new Axes(Gl, solidShader, new Transform() { Position = new Vector3(0, 0f, 0) });
         //gameObjects.Add(axes);
@@ -245,6 +349,9 @@ class Program
         var graniteCube = new Cube(Gl, cubeShader, granite, new Transform(), true);
         var andesiteCube = new Cube(Gl, cubeShader, andesite, new Transform(), true);
         var commandCube = new Cube(Gl, cubeShader, command, new Transform(), true);
+        var logCube = new Cube(Gl, cubeShader, log, new Transform(), true);
+        var woodLog = new Cube(Gl, cubeShader, wood, new Transform(), true);
+        //RayObject = new(Gl, solidShader, new Transform());
         
         gameObjects.Add(grassCube);
         gameObjects.Add(stoneCube);
@@ -258,6 +365,8 @@ class Program
         gameObjects.Add(graniteCube);
         gameObjects.Add(andesiteCube);
         gameObjects.Add(commandCube);
+        gameObjects.Add(logCube);
+        gameObjects.Add(woodLog);
         
         blockRenderers.Add(BlockType.GrassBlock, grassCube);
         blockRenderers.Add(BlockType.StoneBlock, stoneCube);
@@ -271,6 +380,8 @@ class Program
         blockRenderers.Add(BlockType.Granite, graniteCube);
         blockRenderers.Add(BlockType.Andesite, andesiteCube);
         blockRenderers.Add(BlockType.CommandBlock, commandCube);
+        blockRenderers.Add(BlockType.Log, logCube);
+        blockRenderers.Add(BlockType.WoodBlock, woodLog);
     }
     
 
@@ -294,6 +405,8 @@ class Program
         }
 
         CameraZoom = primaryKeyboard.IsKeyPressed(Key.C) ? 1f : 45f;
+        Vector3 strafeDirection = default;
+        bool strafeCalculated = false;
         if (primaryKeyboard.IsKeyPressed(Key.W))
         {
             //Move forwards
@@ -309,13 +422,22 @@ class Program
         if (primaryKeyboard.IsKeyPressed(Key.A))
         {
             //Move left
-            CameraPosition -= Vector3.Normalize(Vector3.Cross(CameraFront, CameraUp)) * moveSpeed;
+            if (!strafeCalculated)
+            {
+                strafeDirection = Vector3.Normalize(Vector3.Cross(CameraFront, CameraUp));
+                strafeCalculated = true;
+            }
+            CameraPosition -= strafeDirection * moveSpeed;
         }
 
         if (primaryKeyboard.IsKeyPressed(Key.D))
         {
             //Move right
-            CameraPosition += Vector3.Normalize(Vector3.Cross(CameraFront, CameraUp)) * moveSpeed;
+            if (!strafeCalculated)
+            {
+                strafeDirection = Vector3.Normalize(Vector3.Cross(CameraFront, CameraUp));
+            }
+            CameraPosition += strafeDirection * moveSpeed;
         }
     }
 
@@ -341,19 +463,24 @@ class Program
 
         if (!Loader.FinishedLoading && Loader.StartedLoading)
         {
-            var projectionUI = Matrix4x4.CreateOrthographic(Width, Height, 0.1f, 100f);
             float onePercent = Loader.PercentageMaximum / 100f;
             float currentPercent = (Loader.PercentageCurrent / onePercent + 1) / 100f;
             float larped = (1 - currentPercent) * Width / 300 + currentPercent * Width / 3;
-            Loader.LoadChunk(ref chunks);
-            Loader.Slider.Render(projectionUI);
+            Loader.LoadChunk(ref chunks, ref chunkPositions);
+            Loader.Slider.Render(UiProjection);
             Loader.Slider.EditTransform(new Vector3((-larped / 2 + larped) - Width / 6f, 0,0), larped, Height / 10f);
-            Loader.SliderBackground.Render(projectionUI);
-            Loader.Background.Render(projectionUI);
+            Loader.SliderBackground.Render(UiProjection);
+            Loader.Background.Render(UiProjection);
             Gl.Disable(EnableCap.DepthTest);
             DrawLoadingScreenText();
             return;
         }
+        
+        NearbyBlocks.Clear();
+        NearbyBlockChunks.Clear();
+        NearbyBlockSet.Clear();
+        Vector3 playerPosition = new Vector3((float)Math.Floor(CameraPosition.X) + 0.5f, (int)(CameraPosition.Y + 0.5f), (float)Math.Floor(CameraPosition.Z) + 0.5f);
+        GetNearbyBlocks(playerPosition);
         
         var view = Matrix4x4.CreateLookAt(CameraPosition, CameraPosition + CameraFront, CameraUp);
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(CameraZoom),
@@ -375,26 +502,72 @@ class Program
                 blockRenderers[batch.BlockType].RenderInstanced(batch.FaceMask, batch.InstanceBuffer, batch.InstanceCount, view, projection);
             }
         }
-        var projectionUILate = Matrix4x4.CreateOrthographic(Width, Height, 0.1f, 100f);
-        if (UIHandler.BlockCameraAndMovement)
-        {
-            UIHandler.DrawCommandBlockUI(projectionUILate, ref FontRenderer, ref FontStash, Width, Height);
-        }
-        DrawPersistentUI(projectionUILate);
-        //gameObjects[0].Render(view, projection);
+        //RayObject.Render(view, projection);
 
         Gl.DepthFunc(DepthFunction.Lequal);
         Skybox.Render(view, projection);
         Gl.DepthFunc(DepthFunction.Less);
 
         Gl.Disable(EnableCap.DepthTest);
+                
+        if (UIHandler.BlockCameraAndMovement)
+        {
+            UIHandler.DrawCommandBlockUI(UiProjection, ref FontRenderer, ref FontStash, Width, Height);
+        }
+        DrawPersistentUI(UiProjection);
+        
         DrawDebug(activeChunk, deltaTime);
+    }
+
+    private static void GetNearbyBlocks(Vector3 playerPosition)
+    {
+        AddNearbyBlock(playerPosition);
+        AddNearbyBlock(playerPosition - Vector3.UnitY);
+        for (int i = -3; i <= 2; i++)
+        {
+            GetNearNine(playerPosition + new Vector3(0, i, 0), NearbyBlockSearchRadius);
+        }
+    }
+    
+    private static void GetNearNine(Vector3 position, int radius)
+    {
+        float radiusSquared = radius * radius;
+        for (int x = -radius; x <= radius; x++)
+        {
+            for (int z = -radius; z <= radius; z++)
+            {
+                var newPos = position + new Vector3(x, 0, z);
+                if (Vector3.DistanceSquared(CameraPosition, newPos) < radiusSquared)
+                {
+                    AddNearbyBlock(newPos);
+                }
+            }
+        }
+    }
+
+    private static void AddNearbyBlock(Vector3 position)
+    {
+        if (!NearbyBlockSet.Add(position))
+            return;
+
+        NearbyBlocks.Add(position);
+        NearbyBlockChunks.Add(GetChunkFromPosition(position));
+    }
+
+    private static int GetChunkFromPosition(Vector3 position)
+    {
+        for (var index = 0; index < chunkPositions.Count; index++)
+        {
+            var chunk = chunkPositions[index];
+            if (position.X > chunk.X && position.X < chunk.X + 16 && position.Z > chunk.Y && position.Z < chunk.Y + 16)
+                return index;
+        }
+        return -1;
     }
 
     private static void DrawPersistentUI(Matrix4x4 projectionUI)
     {
-        double length = Math.Sqrt(Math.Pow(CameraPosition.X - commandBlockLocation.X, 2) + Math.Pow(CameraPosition.Y - commandBlockLocation.Y,2) + Math.Pow(CameraPosition.Z - commandBlockLocation.Z,2));
-        if (length < commandBlockActiveRadius)
+        if (Vector3.DistanceSquared(CameraPosition, commandBlockLocation) < CommandBlockActiveRadiusSquared)
         {
             UIHandler.Key.Render(projectionUI);
         }
@@ -402,22 +575,22 @@ class Program
 
     private static void DrawLoadingScreenText()
     {
-        FontRenderer.SetProjection(Matrix4x4.CreateOrthographicOffCenter(0, Width, Height, 0, -1f, 1f));
+        FontRenderer.SetProjection(FontProjection);
         FontStash.DrawText(Width / 3f, Height / 1.7f, Loader.Message);
         FontStash.DrawText(Width / 2.09f, Height / 1.97f, $"{Loader.PercentageCurrent}/{Loader.PercentageMaximum}");
     }
 
     private static void DrawDebug(Vector2 activeChunk, double deltaTime)
     {
-        FontRenderer.SetProjection(Matrix4x4.CreateOrthographicOffCenter(0, Width, Height, 0, -1f, 1f));
-        StringBuilder sb = new();
-        sb.Append("X: ");
-        sb.Append(Math.Round(CameraPosition.X, 2));
-        sb.Append(", Y: ");
-        sb.Append(Math.Round(CameraPosition.Y, 2));
-        sb.Append(", Z: ");
-        sb.Append(Math.Round(CameraPosition.Z, 2));
-        FontStash.DrawText(20, 56, sb.ToString());
+        FontRenderer.SetProjection(FontProjection);
+        DebugTextBuilder.Clear();
+        DebugTextBuilder.Append("X: ");
+        DebugTextBuilder.Append(Math.Round(CameraPosition.X, 2));
+        DebugTextBuilder.Append(", Y: ");
+        DebugTextBuilder.Append(Math.Round(CameraPosition.Y, 2));
+        DebugTextBuilder.Append(", Z: ");
+        DebugTextBuilder.Append(Math.Round(CameraPosition.Z, 2));
+        FontStash.DrawText(20, 56, DebugTextBuilder.ToString());
         if (fpsResetCounter >= fpsResetLimit)
         {
             fpsLast = 1 / deltaTime;
@@ -464,6 +637,7 @@ class Program
     {
         Width = size.X;
         Height = size.Y;
+        UpdateProjectionMatrices();
         Loader.Background.EditTransform(new Vector3(0,0,0), Width, Height);
         Loader.SliderBackground.EditTransform(new Vector3(0,0,0), Width / 2f, Height / 2f);
         Loader.Slider.EditTransform(new Vector3(0,0,0), Width / 5f, Height /6f); //TODO: change to real values
@@ -485,11 +659,11 @@ class Program
             case Key.Up:
                 seed = new Random().Next();
                 Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref commandBlockLocation);
+                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref chunkPositions, ref commandBlockLocation);
                 break;
             case Key.Down:
                 Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref commandBlockLocation);
+                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref chunkPositions, ref commandBlockLocation);
                 break;
             case Key.Left:
                 biggerOreGrowth = !biggerOreGrowth;
@@ -498,8 +672,7 @@ class Program
                 moreOreGrowth++; //TODO: 10/10/True/4 should be cap
                 break;
             case Key.E:
-                double length = Math.Sqrt(Math.Pow(CameraPosition.X - commandBlockLocation.X, 2) + Math.Pow(CameraPosition.Y - commandBlockLocation.Y,2) + Math.Pow(CameraPosition.Z - commandBlockLocation.Z,2));
-                if (length < commandBlockActiveRadius)
+                if (Vector3.DistanceSquared(CameraPosition, commandBlockLocation) < CommandBlockActiveRadiusSquared)
                 {
                     LastMousePosition = UIHandler.HandleCommandBlockUI(primaryMouse, Width, Height, LastMousePosition);
                 }
@@ -548,5 +721,11 @@ class Program
 
     private static unsafe void OnMouseWheel(IMouse mouse, ScrollWheel scrollWheel)
     {
+    }
+
+    private static void UpdateProjectionMatrices()
+    {
+        UiProjection = Matrix4x4.CreateOrthographic(Width, Height, 0.1f, 100f);
+        FontProjection = Matrix4x4.CreateOrthographicOffCenter(0, Width, Height, 0, -1f, 1f);
     }
 }
