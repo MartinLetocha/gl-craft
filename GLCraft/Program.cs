@@ -21,7 +21,7 @@ using Texture = GLCraft.Fundamental.Texture;
 
 namespace GLCraft;
 
-class Program
+static class Program
 {
     private const int NearbyBlockSearchRadius = 3;
     private const int MaxNearbyBlocks = 2 + 6 * ((NearbyBlockSearchRadius * 2 + 1) * (NearbyBlockSearchRadius * 2 + 1));
@@ -100,14 +100,12 @@ class Program
     
     private static float SprintSpeed = 2f;
 
-    private static Dictionary<BlockType, int> Resources = new Dictionary<BlockType, int>();
-
     private static Vector3 commandBlockLocation = Vector3.Zero;
-    private static int chunkAmount = 3;
-    private static bool biggerOreGrowth = false;
-    private static int moreOreGrowth = 0;
-    private static int oreChance = 0;
-    private static int carbonizer = 1;
+    public static int chunkAmount = 1;
+    public static bool biggerOreGrowth = false;
+    public static int moreOreGrowth = 0;
+    public static int oreChance = 0;
+    public static int carbonizer = 1;
     
     //collision detection
     private static List<Vector3> NearbyBlocks = new List<Vector3>(MaxNearbyBlocks);
@@ -132,7 +130,15 @@ class Program
         new Vector2(0f, PlayerRadius),
         new Vector2(0f, -PlayerRadius)
     ];
-
+    
+    
+    //BUGS:
+    //something on resize probably
+    //command block Y level is not correct
+    //jumping keeps you in air
+    //TODO maybes:
+    //Auto miner
+    //Tree gen
     static void Main(string[] args)
     {
         WindowOptions options = WindowOptions.Default with
@@ -230,7 +236,7 @@ class Program
         
         foreach (BlockType block in (BlockType[]) Enum.GetValues(typeof(BlockType)))
         {
-            Resources.Add(block, 0);
+            UIHandler.Resources.Add(block, 0);
         }
 
 
@@ -243,16 +249,25 @@ class Program
             GetShaderLocation("shader", GLEnum.FragmentShader));
 
         var keyTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "EKey.png"));
+        var cursor = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "Middle.png"));
         var commandBg = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "commandbg.png"));
         var btnBg = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "btnbg.png"));
         UIHandler.Key = new Image(Gl, keyTexture, uishader, new Transform() {Position = new Vector3(Width / 2.1f, 0,0), ScaleX = Height / 15f, ScaleY = Height / 15f, Rotation = Quaternion.CreateFromAxisAngle(new Vector3(0,0,1), -90 * (float)Math.PI / 180)});
         UIHandler.Background = new Image(Gl, commandBg, uishader, new Transform(){Position = Vector3.Zero, ScaleX = Width / 1.2f, ScaleY = Height / 1.2f});
+        UIHandler.Cursor = new Image(Gl, cursor, uishader, new Transform(){Position = Vector3.Zero, ScaleX = Height / 20f, ScaleY = Height / 20f});
         float btnX = Width / 8f;
         float btnY = Height / 13f;
-        Image btn = new Image(Gl, btnBg, uishader,
-            new Transform() { Position = new Vector3(0, 0, 0), ScaleX = btnX, ScaleY = btnY });
-        UIHandler.Buttons.Add(new Button(0, btn, "Click me!", new Vector2(Width / 2f - btnX / 2f, Height / 2f - btnY / 2f), new Vector2(btnX, btnY)));
-        
+        for (int i = 0; i < 5; i++)
+        {
+            Vector3 btnLocation = new Vector3(-btnX, btnY * (4 - i) - 20 * i, 0);
+            Image btn = new Image(Gl, btnBg, uishader,
+                new Transform() { Position = btnLocation, ScaleX = btnX, ScaleY = btnY });
+            UIHandler.Buttons.Add(new Button(i, btn, "Buy!", new Vector2(Width / 2f - btnX / 2f + btnLocation.X, Height / 2f - btnY / 2f - btnLocation.Y), new Vector2(btnX, btnY)));
+        }
+        Vector3 btnRLocation = new Vector3(0, btnY * -4.5f, 0);
+        Image btnR = new Image(Gl, btnBg, uishader,
+            new Transform() { Position = btnRLocation, ScaleX = btnX, ScaleY = btnY });
+        UIHandler.Buttons.Add(new Button(100, btnR, "Regenerate Map", new Vector2(Width / 2f - btnX / 2f + btnRLocation.X, Height / 2f - btnY / 2f - btnRLocation.Y), new Vector2(btnX, btnY)));
         var bgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "bg.png"));
         var sliderbgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "sliderbg.png"));
         var sliderTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "slider.png"));
@@ -262,6 +277,13 @@ class Program
         Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref chunkPositions, ref commandBlockLocation);
     }
 
+    public static void ResetChunks()
+    {
+        LastMousePosition = UIHandler.HandleCommandBlockUI(primaryMouse, Width, Height, LastMousePosition);
+        seed = new Random().Next();
+        Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
+        Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref chunkPositions, ref commandBlockLocation);
+    }
     private static void OnMouseClick(IMouse arg1, MouseButton arg2)
     {
         if (!Loader.FinishedLoading)
@@ -307,7 +329,7 @@ class Program
         {
             if (chunks[hitChunkIndex].HasBlock(hitBlock.Value))
             {
-                Resources[chunks[hitChunkIndex].RemoveBlock(hitBlock.Value)]++;
+                UIHandler.Resources[chunks[hitChunkIndex].RemoveBlock(hitBlock.Value)]++;
                 chunks[hitChunkIndex].Rebuild();
             }
         }
@@ -794,6 +816,11 @@ class Program
 
     private static void DrawPersistentUI(Matrix4x4 projectionUI)
     {
+        if (!UIHandler.BlockCameraAndMovement)
+        {
+            UIHandler.Cursor.Render(projectionUI);
+        }
+
         if (Vector3.DistanceSquared(CameraPosition, commandBlockLocation) < CommandBlockActiveRadiusSquared)
         {
             UIHandler.Key.Render(projectionUI);
@@ -812,11 +839,11 @@ class Program
         FontRenderer.SetProjection(FontProjection);
         DebugTextBuilder.Clear();
         DebugTextBuilder.Append("X: ");
-        DebugTextBuilder.Append(Math.Round(CameraPosition.X, 2));
+        DebugTextBuilder.Append(CameraPosition.X.ToString("0.00"));
         DebugTextBuilder.Append(", Y: ");
-        DebugTextBuilder.Append(Math.Round(CameraPosition.Y, 2));
+        DebugTextBuilder.Append(CameraPosition.Y.ToString("0.00"));
         DebugTextBuilder.Append(", Z: ");
-        DebugTextBuilder.Append(Math.Round(CameraPosition.Z, 2));
+        DebugTextBuilder.Append(CameraPosition.Z.ToString("0.00"));
         FontStash.DrawText(20, 56, DebugTextBuilder.ToString());
         if (fpsResetCounter >= fpsResetLimit)
         {
@@ -828,15 +855,17 @@ class Program
             fpsResetCounter++;
         }
 
-        FontStash.DrawText(20, 100, fpsLast.ToString("0.00") + " fps");
-        FontStash.DrawText(20, 144, $"Active chunk - X: {activeChunk.X}; Y: {activeChunk.Y}");
-        FontStash.DrawText(20, 188, $"Seed: {seed}");
+        FontStash.DrawText(Width - 220, 56, fpsLast.ToString("0.00") + " fps");
+        //FontStash.DrawText(20, 144, $"Active chunk - X: {activeChunk.X}; Y: {activeChunk.Y}");
+        FontStash.DrawText(20, 100, $"Seed: {seed}");
+        string msg = "Press 'R' to respawn.";
+        FontStash.DrawText(Width / 2f - msg.Length * 9, Height - 44, msg);
         
-        FontStash.DrawText(20, 256, $"Bigger ore chunks: {biggerOreGrowth}");
-        FontStash.DrawText(20, 300, $"Better ore chance: {oreChance}");
-        FontStash.DrawText(20, 344, $"Extra ore: {moreOreGrowth}");
-        FontStash.DrawText(20, 388, "Left to set bigger ore chunks, right to add extra ore");
-        FontStash.DrawText(20, 432, "Down to keep seed, Up to not");
+        //FontStash.DrawText(20, 256, $"Bigger ore chunks: {biggerOreGrowth}");
+        //FontStash.DrawText(20, 300, $"Better ore chance: {oreChance}");
+        //FontStash.DrawText(20, 344, $"Extra ore: {moreOreGrowth}");
+        //FontStash.DrawText(20, 388, "Left to set bigger ore chunks, right to add extra ore");
+        //FontStash.DrawText(20, 432, "Down to keep seed, Up to not");
     }
 
     private static Vector2 GetActiveChunkLocation(Vector3 position)
@@ -883,20 +912,9 @@ class Program
             case Key.F11:
                 _window.WindowState = WindowState.Maximized;
                 break;
-            case Key.Up:
-                seed = new Random().Next();
-                Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref chunkPositions, ref commandBlockLocation);
-                break;
-            case Key.Down:
-                Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
-                Loader.CreateChunks(Gl, chunkAmount, ref chunks, ref chunkPositions, ref commandBlockLocation);
-                break;
-            case Key.Left:
-                biggerOreGrowth = !biggerOreGrowth;
-                break;
-            case Key.Right:      //   orechance/moreore/biggerore/carbonizer
-                moreOreGrowth++; //TODO: 10/10/True/4 should be cap
+            case Key.R:
+                CameraPosition = commandBlockLocation + new Vector3(0, 10, 0);
+                VerticalVelocity = 0f;
                 break;
             case Key.E:
                 if (Vector3.DistanceSquared(CameraPosition, commandBlockLocation) < CommandBlockActiveRadiusSquared)
@@ -906,12 +924,6 @@ class Program
                 break;
             case Key.Space:
                 Jumping = true;
-                break;
-            case Key.Number0:
-                oreChance++;
-                break;
-            case Key.Number1:
-                carbonizer++;
                 break;
             case Key.Escape:
                 _window.Close();

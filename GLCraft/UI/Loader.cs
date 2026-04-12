@@ -56,6 +56,7 @@ public static class Loader
         }
 
         chunks.Clear();
+        locations.Clear();
         
         amount--;
         cX = -amount;
