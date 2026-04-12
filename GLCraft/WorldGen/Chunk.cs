@@ -257,9 +257,14 @@ public class Chunk : IDisposable
     public bool HasBlock(Vector3 position)
     {
         bool found = transforms.TryGetValue(position, out var block);
-        if (!found)
+        if (!found || block == BlockType.CommandBlock)
             return false;
         return true;
+    }
+    public bool HasBlockCollision(Vector3 position)
+    {
+        bool found = transforms.TryGetValue(position, out var block);
+        return found;
     }
     public BlockType RemoveBlock(Vector3 position)
     {

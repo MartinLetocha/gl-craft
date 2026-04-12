@@ -25,8 +25,25 @@ class Program
 {
     private const int NearbyBlockSearchRadius = 3;
     private const int MaxNearbyBlocks = 2 + 6 * ((NearbyBlockSearchRadius * 2 + 1) * (NearbyBlockSearchRadius * 2 + 1));
-    private const float CommandBlockActiveRadius = 5f;
     private const float CommandBlockActiveRadiusSquared = 25f;
+    private const float PlayerFootOffset = 1.69f;
+    private const float PlayerHeadOffset = 0.2f;
+    private const float PlayerRadius = 0.35f;
+    private const float MidBodyProbeOffset = 1.0f;
+    private const float LowerBodyProbeOffset = 1.55f;
+    private const float GravityAcceleration = 18f;
+    private const float TerminalFallSpeed = 30f;
+    private const float JumpForce = 180f;
+    private const float JumpDecay = 1;
+    private const float JumpLength = 0.5f;
+    private const float JumpDelay = 0.3f;
+    private static float JumpDelayCurrent = 0;
+    private static bool JumpDelayStarted = false;
+    private static float JumpCurrent = 0;
+    private static bool Jumping = false;
+    private const float GroundSnapEpsilon = 0.02f;
+    private const float GroundedStickDistance = 0.08f;
+    private const float GroundProbeDepth = 0.05f;
 
     //Base
     private static IWindow _window;
@@ -40,7 +57,7 @@ class Program
     private static Matrix4x4 FontProjection;
     
     //Camera
-    private static Vector3 CameraPosition = new Vector3(0.0f, 0.0f, 3.0f);
+    private static Vector3 CameraPosition = new Vector3(0.5f, 0.0f, 0.5f);
     private static Vector3 CameraTarget = Vector3.Zero;
     private static Vector3 CameraDirection = Vector3.Normalize(CameraPosition - CameraTarget);
     private static Vector3 CameraRight = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, CameraDirection));
@@ -86,7 +103,7 @@ class Program
     private static Dictionary<BlockType, int> Resources = new Dictionary<BlockType, int>();
 
     private static Vector3 commandBlockLocation = Vector3.Zero;
-    private static int chunkAmount = 20;
+    private static int chunkAmount = 3;
     private static bool biggerOreGrowth = false;
     private static int moreOreGrowth = 0;
     private static int oreChance = 0;
@@ -99,6 +116,22 @@ class Program
     //private static List<Vector3> Ray = new List<Vector3>(64);
     //private static Ray RayObject;
     private static readonly StringBuilder DebugTextBuilder = new(64);
+    private static float VerticalVelocity;
+    private static readonly Vector2[] HorizontalProbeOffsets =
+    [
+        new Vector2(PlayerRadius, 0f),
+        new Vector2(-PlayerRadius, 0f),
+        new Vector2(0f, PlayerRadius),
+        new Vector2(0f, -PlayerRadius)
+    ];
+    private static readonly Vector2[] FootProbeOffsets =
+    [
+        Vector2.Zero,
+        new Vector2(PlayerRadius, 0f),
+        new Vector2(-PlayerRadius, 0f),
+        new Vector2(0f, PlayerRadius),
+        new Vector2(0f, -PlayerRadius)
+    ];
 
     static void Main(string[] args)
     {
@@ -261,7 +294,7 @@ class Program
                 {
                     hitBlock = nearbyBlock;
                     hitChunkIndex = NearbyBlockChunks[index];
-                    if(chunks[hitChunkIndex].HasBlock(hitBlock.Value))
+                    if(hitChunkIndex != -1 && chunks[hitChunkIndex].HasBlock(hitBlock.Value))
                         goto RaycastFinished;
                 }
             }
@@ -392,8 +425,9 @@ class Program
 
     private static void OnUpdate(double deltaTime)
     {
-        if (UIHandler.BlockCameraAndMovement)
+        if (!Loader.FinishedLoading || UIHandler.BlockCameraAndMovement)
             return;
+        
         var moveSpeed = 2.5f * (float)deltaTime;
         if (primaryKeyboard.IsKeyPressed(Key.ShiftLeft))
         {
@@ -404,40 +438,71 @@ class Program
             moveSpeed *= SprintSpeed;
         }
 
-        CameraZoom = primaryKeyboard.IsKeyPressed(Key.C) ? 1f : 45f;
-        Vector3 strafeDirection = default;
-        bool strafeCalculated = false;
+        CameraZoom = primaryKeyboard.IsKeyPressed(Key.C) ? 0.1f : 45f;
+        Vector3 movement = Vector3.Zero;
+        Vector3 flatFront = Vector3.Normalize(new Vector3(CameraFront.X, 0f, CameraFront.Z));
+        if (float.IsNaN(flatFront.X))
+        {
+            flatFront = -Vector3.UnitZ;
+        }
+
+        Vector3 strafeDirection = Vector3.Normalize(Vector3.Cross(flatFront, Vector3.UnitY));
         if (primaryKeyboard.IsKeyPressed(Key.W))
         {
-            //Move forwards
-            CameraPosition += moveSpeed * CameraFront;
+            movement += flatFront * moveSpeed;
         }
 
         if (primaryKeyboard.IsKeyPressed(Key.S))
         {
-            //Move backwards
-            CameraPosition -= moveSpeed * CameraFront;
+            movement -= flatFront * moveSpeed;
         }
 
         if (primaryKeyboard.IsKeyPressed(Key.A))
         {
-            //Move left
-            if (!strafeCalculated)
-            {
-                strafeDirection = Vector3.Normalize(Vector3.Cross(CameraFront, CameraUp));
-                strafeCalculated = true;
-            }
-            CameraPosition -= strafeDirection * moveSpeed;
+            movement -= strafeDirection * moveSpeed;
         }
 
         if (primaryKeyboard.IsKeyPressed(Key.D))
         {
-            //Move right
-            if (!strafeCalculated)
+            movement += strafeDirection * moveSpeed;
+        }
+
+        RefreshNearbyBlocks(CameraPosition);
+        TryMoveHorizontal(movement);
+        Jump((float)deltaTime);
+        ApplyGravity((float)deltaTime);
+        RefreshNearbyBlocks(CameraPosition);
+    }
+
+    private static void Jump(float deltaTime)
+    {
+        if (JumpDelayStarted)
+        {
+            JumpDelayCurrent += deltaTime;
+            if (JumpDelayCurrent >= JumpDelay)
             {
-                strafeDirection = Vector3.Normalize(Vector3.Cross(CameraFront, CameraUp));
+                JumpDelayCurrent = 0;
+                JumpDelayStarted = false;
             }
-            CameraPosition += strafeDirection * moveSpeed;
+            else
+                return;
+        }
+        if (Jumping)
+        {
+            JumpCurrent += deltaTime;
+            if (JumpCurrent < JumpLength)
+            {
+                VerticalVelocity = VerticalVelocity + (JumpForce - JumpDecay * JumpCurrent * 1500) * deltaTime;
+                VerticalVelocity = Math.Clamp(VerticalVelocity, 0, 1000f);
+                if(VerticalVelocity == 0)
+                    JumpCurrent += deltaTime * 3;
+            }
+            else
+            {
+                Jumping = false;
+                JumpCurrent = 0;
+                JumpDelayStarted = true;
+            }
         }
     }
 
@@ -475,13 +540,20 @@ class Program
             DrawLoadingScreenText();
             return;
         }
-        
-        NearbyBlocks.Clear();
-        NearbyBlockChunks.Clear();
-        NearbyBlockSet.Clear();
-        Vector3 playerPosition = new Vector3((float)Math.Floor(CameraPosition.X) + 0.5f, (int)(CameraPosition.Y + 0.5f), (float)Math.Floor(CameraPosition.Z) + 0.5f);
-        GetNearbyBlocks(playerPosition);
-        
+
+        if (Loader.DoOnceAfterLoad)
+        {
+            CameraPosition = commandBlockLocation + new Vector3(0, 5, 0);
+            VerticalVelocity = 0f;
+            Loader.DoOnceAfterLoad = false;
+        }
+
+        if (CameraPosition.Y < -80)
+        {
+            CameraPosition = commandBlockLocation + new Vector3(0, 2, 0);
+            VerticalVelocity = 0f;
+        }
+
         var view = Matrix4x4.CreateLookAt(CameraPosition, CameraPosition + CameraFront, CameraUp);
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(CameraZoom),
             (float)Width / Height, 0.1f, 200.0f);
@@ -519,17 +591,172 @@ class Program
         DrawDebug(activeChunk, deltaTime);
     }
 
-    private static void GetNearbyBlocks(Vector3 playerPosition)
+    private static void TryMoveHorizontal(Vector3 movement)
     {
-        AddNearbyBlock(playerPosition);
-        AddNearbyBlock(playerPosition - Vector3.UnitY);
-        for (int i = -3; i <= 2; i++)
+        if (movement.X != 0f)
         {
-            GetNearNine(playerPosition + new Vector3(0, i, 0), NearbyBlockSearchRadius);
+            Vector3 candidate = CameraPosition + new Vector3(movement.X, 0f, 0f);
+            RefreshNearbyBlocks(candidate);
+            if (!CollidesWithBody(candidate))
+            {
+                CameraPosition = candidate;
+            }
+        }
+
+        if (movement.Z != 0f)
+        {
+            Vector3 candidate = CameraPosition + new Vector3(0f, 0f, movement.Z);
+            RefreshNearbyBlocks(candidate);
+            if (!CollidesWithBody(candidate))
+            {
+                CameraPosition = candidate;
+            }
         }
     }
-    
-    private static void GetNearNine(Vector3 position, int radius)
+
+    private static void ApplyGravity(float deltaTime)
+    {
+        RefreshNearbyBlocks(CameraPosition);
+        if (TryGetGroundedCameraY(CameraPosition, out float currentGroundedY) &&
+            CameraPosition.Y - currentGroundedY <= GroundedStickDistance &&
+            VerticalVelocity <= 0f)
+        {
+            CameraPosition = new Vector3(CameraPosition.X, currentGroundedY, CameraPosition.Z);
+            VerticalVelocity = 0f;
+            return;
+        }
+
+        VerticalVelocity = MathF.Max(VerticalVelocity - GravityAcceleration * deltaTime, -TerminalFallSpeed);
+        float verticalDelta = VerticalVelocity * deltaTime;
+        if (verticalDelta == 0f)
+        {
+            return;
+        }
+
+        Vector3 candidate = CameraPosition + new Vector3(0f, verticalDelta, 0f);
+        RefreshNearbyBlocks(candidate);
+
+        if (verticalDelta < 0f && TryGetGroundedCameraY(candidate, out float groundedCameraY))
+        {
+            CameraPosition = new Vector3(candidate.X, groundedCameraY, candidate.Z);
+            VerticalVelocity = 0f;
+            return;
+        }
+
+        if (verticalDelta > 0f && CollidesWithCeiling(candidate, out float ceilingCameraY))
+        {
+            CameraPosition = new Vector3(candidate.X, ceilingCameraY, candidate.Z);
+            VerticalVelocity = 0f;
+            return;
+        }
+
+        CameraPosition = candidate;
+    }
+
+    private static bool CollidesWithBody(Vector3 position)
+    {
+        foreach (var offset in HorizontalProbeOffsets)
+        {
+            Vector3 upperBodyProbe = position + new Vector3(offset.X, -PlayerHeadOffset, offset.Y);
+            if (TryGetSolidBlockContainingPoint(upperBodyProbe, out _))
+                return true;
+
+            Vector3 middleBodyProbe = position + new Vector3(offset.X, -MidBodyProbeOffset, offset.Y);
+            if (TryGetSolidBlockContainingPoint(middleBodyProbe, out _))
+                return true;
+
+            Vector3 lowerBodyProbe = position + new Vector3(offset.X, -LowerBodyProbeOffset, offset.Y);
+            if (TryGetSolidBlockContainingPoint(lowerBodyProbe, out _))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetGroundedCameraY(Vector3 position, out float groundedCameraY)
+    {
+        groundedCameraY = float.MinValue;
+        bool hitGround = false;
+
+        foreach (var offset in FootProbeOffsets)
+        {
+            Vector3 footProbe = position + new Vector3(offset.X, -(PlayerFootOffset + GroundProbeDepth), offset.Y);
+            if (!TryGetSolidBlockContainingPoint(footProbe, out Vector3 blockCenter))
+                continue;
+
+            float candidateGroundedY = blockCenter.Y + 0.5f + PlayerFootOffset + GroundSnapEpsilon;
+            if (candidateGroundedY > groundedCameraY)
+            {
+                groundedCameraY = candidateGroundedY;
+            }
+
+            hitGround = true;
+        }
+
+        return hitGround;
+    }
+
+    private static bool CollidesWithCeiling(Vector3 position, out float ceilingCameraY)
+    {
+        ceilingCameraY = position.Y;
+
+        foreach (var offset in FootProbeOffsets)
+        {
+            Vector3 headProbe = position + new Vector3(offset.X, PlayerHeadOffset, offset.Y);
+            if (!TryGetSolidBlockContainingPoint(headProbe, out Vector3 blockCenter))
+                continue;
+
+            ceilingCameraY = blockCenter.Y - 0.5f - PlayerHeadOffset - GroundSnapEpsilon;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetSolidBlockContainingPoint(Vector3 point, out Vector3 blockCenter)
+    {
+        for (int index = 0; index < NearbyBlocks.Count; index++)
+        {
+            int chunkIndex = NearbyBlockChunks[index];
+            if (chunkIndex == -1)
+                continue;
+
+            Vector3 nearbyBlock = NearbyBlocks[index];
+            if (!chunks[chunkIndex].HasBlockCollision(nearbyBlock))
+                continue;
+
+            if (PointInsideBlock(point, nearbyBlock))
+            {
+                blockCenter = nearbyBlock;
+                return true;
+            }
+        }
+
+        blockCenter = Vector3.Zero;
+        return false;
+    }
+
+    private static void RefreshNearbyBlocks(Vector3 position)
+    {
+        NearbyBlocks.Clear();
+        NearbyBlockChunks.Clear();
+        NearbyBlockSet.Clear();
+
+        Vector3 playerPosition = new Vector3(
+            (float)Math.Floor(position.X) + 0.5f,
+            (float)Math.Floor(position.Y),
+            (float)Math.Floor(position.Z) + 0.5f);
+
+        AddNearbyBlock(playerPosition);
+        AddNearbyBlock(playerPosition - Vector3.UnitY);
+
+        for (int y = -3; y <= 2; y++)
+        {
+            GetNearNine(playerPosition + new Vector3(0, y, 0), NearbyBlockSearchRadius, position);
+        }
+    }
+
+    private static void GetNearNine(Vector3 position, int radius, Vector3 referencePosition)
     {
         float radiusSquared = radius * radius;
         for (int x = -radius; x <= radius; x++)
@@ -537,7 +764,7 @@ class Program
             for (int z = -radius; z <= radius; z++)
             {
                 var newPos = position + new Vector3(x, 0, z);
-                if (Vector3.DistanceSquared(CameraPosition, newPos) < radiusSquared)
+                if (Vector3.DistanceSquared(referencePosition, newPos) < radiusSquared)
                 {
                     AddNearbyBlock(newPos);
                 }
@@ -676,6 +903,9 @@ class Program
                 {
                     LastMousePosition = UIHandler.HandleCommandBlockUI(primaryMouse, Width, Height, LastMousePosition);
                 }
+                break;
+            case Key.Space:
+                Jumping = true;
                 break;
             case Key.Number0:
                 oreChance++;

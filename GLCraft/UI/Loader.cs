@@ -12,6 +12,7 @@ public static class Loader
     public static string Message = "Loading...";
     public static bool StartedLoading = false;
     public static bool FinishedLoading = false;
+    public static bool DoOnceAfterLoad = false;
     public static Image Background;
     public static Image SliderBackground;
     public static Image Slider;
@@ -38,6 +39,7 @@ public static class Loader
     
     public static void CreateChunks(GL GlP, int amount, ref List<Chunk> chunks, ref List<Vector2> locations, ref Vector3 commandBlockLocation)
     {
+        DoOnceAfterLoad = false;
         Gl = GlP;
         StartedLoading = true;
         FinishedLoading = false;
@@ -80,13 +82,12 @@ public static class Loader
         
         LoadChunkLoop(ref chunks, ref locations);
         
-        //show UI
-        
         if (chunks.Count >= PercentageMaximum)
         {
             FinishedLoading = true;
             StartedLoading = false;
             Message = "Finished loading!";
+            DoOnceAfterLoad = true;
         }
     }
 
