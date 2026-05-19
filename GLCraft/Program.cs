@@ -90,9 +90,9 @@ static class Program
     private static Vector2 LastActiveChunk = new Vector2(float.NaN, float.NaN);
 
     //paths
-    private const string TEXTURE_PATH = @"C:\Users\marti\RiderProjects\GLCraft\GLCraft\Textures\";
-    private const string SHADER_LOCATION = @"C:\Users\marti\RiderProjects\GLCraft\GLCraft\Shaders\";
-    private const string SPECIAL_RESOURCE_PATH = @"C:\Users\marti\RiderProjects\GLCraft\GLCraft\App\";
+    private const string TEXTURE_PATH = @"Textures\";
+    private const string SHADER_LOCATION = @"Shaders\";
+    private const string SPECIAL_RESOURCE_PATH = @"App\";
     private const string APP_LOGO = @"GLCraftLogo.png";
     
     //actual game stuff
@@ -188,7 +188,7 @@ static class Program
         Loader.Message = "Initializing GLCraft...";
         Loader.ChangeChunkSettings(seed, biggerOreGrowth, moreOreGrowth, oreChance, carbonizer);
         
-        ImageResult image = ImageResult.FromMemory(File.ReadAllBytes(Path.Combine(SPECIAL_RESOURCE_PATH, APP_LOGO)),
+        ImageResult image = ImageResult.FromMemory(File.ReadAllBytes(Path.Combine("Resources", SPECIAL_RESOURCE_PATH, APP_LOGO)),
             ColorComponents.RedGreenBlueAlpha);
         RawImage icon = new RawImage(image.Width, image.Height, image.Data);
         _window.SetWindowIcon(ref icon);
@@ -211,8 +211,8 @@ static class Program
         UIHandler.Gl = Gl;
         FontRenderer = new GLFons(Gl);
         FontStash = FontRenderer.Create(512, 512, (int)FonsFlags.ZeroTopleft);
-        FontNormal = FontStash.AddFont("testFont",
-            "C:\\Users\\marti\\RiderProjects\\GLCraft\\GLCraft\\Fonts\\Verdana.ttf", 0);
+        FontNormal = FontStash.AddFont("testFont", Path.Combine(Directory.GetCurrentDirectory(), "Resources", "Fonts\\Verdana.ttf")
+            , 0);
 
         uint fontColourRed = GetColor(255, 0, 0, 255);
 
@@ -224,7 +224,7 @@ static class Program
         Gl.Enable(EnableCap.Blend);
         Gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
 
-        var skyboxTexture = new CubeTexture(Gl, "C:\\Users\\marti\\RiderProjects\\GLCraft\\GLCraft\\Skybox\\");
+        var skyboxTexture = new CubeTexture(Gl, Path.Combine(Directory.GetCurrentDirectory(), "Resources", "Skybox\\"));
         var skyboxShader = new Shader(Gl, GetShaderLocation("skybox", GLEnum.VertexShader), GetShaderLocation("skybox", GLEnum.FragmentShader));
         Skybox = new Skybox(Gl, skyboxShader, skyboxTexture);
         
@@ -248,10 +248,10 @@ static class Program
         var uishader = new Shader(Gl, GetShaderLocation("uishader", GLEnum.VertexShader),
             GetShaderLocation("shader", GLEnum.FragmentShader));
 
-        var keyTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "EKey.png"));
-        var cursor = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "Middle.png"));
-        var commandBg = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "commandbg.png"));
-        var btnBg = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "btnbg.png"));
+        var keyTexture = new Texture(Gl, Path.Combine("Resources", SPECIAL_RESOURCE_PATH, "EKey.png"));
+        var cursor = new Texture(Gl, Path.Combine("Resources",SPECIAL_RESOURCE_PATH,"Middle.png"));
+        var commandBg = new Texture(Gl, Path.Combine("Resources",SPECIAL_RESOURCE_PATH, "commandbg.png"));
+        var btnBg = new Texture(Gl, Path.Combine("Resources",SPECIAL_RESOURCE_PATH, "btnbg.png"));
         UIHandler.Key = new Image(Gl, keyTexture, uishader, new Transform() {Position = new Vector3(Width / 2.1f, 0,0), ScaleX = Height / 15f, ScaleY = Height / 15f, Rotation = Quaternion.CreateFromAxisAngle(new Vector3(0,0,1), -90 * (float)Math.PI / 180)});
         UIHandler.Background = new Image(Gl, commandBg, uishader, new Transform(){Position = Vector3.Zero, ScaleX = Width / 1.2f, ScaleY = Height / 1.2f});
         UIHandler.Cursor = new Image(Gl, cursor, uishader, new Transform(){Position = Vector3.Zero, ScaleX = Height / 20f, ScaleY = Height / 20f});
@@ -268,9 +268,9 @@ static class Program
         Image btnR = new Image(Gl, btnBg, uishader,
             new Transform() { Position = btnRLocation, ScaleX = btnX, ScaleY = btnY });
         UIHandler.Buttons.Add(new Button(100, btnR, "Regenerate Map", new Vector2(Width / 2f - btnX / 2f + btnRLocation.X, Height / 2f - btnY / 2f - btnRLocation.Y), new Vector2(btnX, btnY)));
-        var bgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "bg.png"));
-        var sliderbgTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "sliderbg.png"));
-        var sliderTexture = new Texture(Gl, Path.Combine(SPECIAL_RESOURCE_PATH, "slider.png"));
+        var bgTexture = new Texture(Gl, Path.Combine("Resources", SPECIAL_RESOURCE_PATH, "bg.png"));
+        var sliderbgTexture = new Texture(Gl, Path.Combine("Resources", SPECIAL_RESOURCE_PATH, "sliderbg.png"));
+        var sliderTexture = new Texture(Gl, Path.Combine("Resources", SPECIAL_RESOURCE_PATH, "slider.png"));
         Loader.Background = new Image(Gl, bgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width, ScaleY = Height});
         Loader.Slider = new Image(Gl, sliderTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
         Loader.SliderBackground = new Image(Gl, sliderbgTexture, uishader, new Transform() {Position = new Vector3(0,0,0), ScaleX = Width / 3f, ScaleY = Height / 10f});
@@ -371,20 +371,20 @@ static class Program
     {
         var solidShader = new Shader(Gl, GetShaderLocation("solid", GLEnum.VertexShader),
             GetShaderLocation("solid", GLEnum.FragmentShader));
-        var texture = new Texture(Gl, Path.Combine(TEXTURE_PATH, "grassBlock.png"));
-        var cobble = new Texture(Gl, Path.Combine(TEXTURE_PATH, "cobblestone.png"));
-        var stone = new Texture(Gl, Path.Combine(TEXTURE_PATH, "stoneBlock.png"));
-        var dirt = new Texture(Gl, Path.Combine(TEXTURE_PATH, "dirt.png"));
-        var deepslate = new Texture(Gl, Path.Combine(TEXTURE_PATH, "deepslate.png"));
-        var coal = new Texture(Gl, Path.Combine(TEXTURE_PATH, "coalOre.png"));
-        var iron = new Texture(Gl, Path.Combine(TEXTURE_PATH, "ironOre.png"));
-        var gold = new Texture(Gl, Path.Combine(TEXTURE_PATH, "goldOre.png"));
-        var diamond = new Texture(Gl, Path.Combine(TEXTURE_PATH, "diamondOre.png"));
-        var granite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "granite.png"));
-        var andesite = new Texture(Gl, Path.Combine(TEXTURE_PATH, "andesite.png"));
-        var command = new Texture(Gl, Path.Combine(TEXTURE_PATH, "commandBlock.png"));
-        var log = new Texture(Gl, Path.Combine(TEXTURE_PATH, "woodLog.png"));
-        var wood = new Texture(Gl, Path.Combine(TEXTURE_PATH, "woodBlock.png"));
+        var texture = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "grassBlock.png"));
+        var cobble = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "cobblestone.png"));
+        var stone = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "stoneBlock.png"));
+        var dirt = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "dirt.png"));
+        var deepslate = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "deepslate.png"));
+        var coal = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "coalOre.png"));
+        var iron = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "ironOre.png"));
+        var gold = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "goldOre.png"));
+        var diamond = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "diamondOre.png"));
+        var granite = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "granite.png"));
+        var andesite = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "andesite.png"));
+        var command = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "commandBlock.png"));
+        var log = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "woodLog.png"));
+        var wood = new Texture(Gl, Path.Combine("Resources", TEXTURE_PATH, "woodBlock.png"));
         
         //var axes = new Axes(Gl, solidShader, new Transform() { Position = new Vector3(0, 0f, 0) });
         //gameObjects.Add(axes);
@@ -532,12 +532,12 @@ static class Program
     {
         if (type == GLEnum.VertexShader)
         {
-            return SHADER_LOCATION + name + ".vert";
+            return Path.Combine(Directory.GetCurrentDirectory(), "Resources",  SHADER_LOCATION + name + ".vert");
         }
 
         if (type == GLEnum.FragmentShader)
         {
-            return SHADER_LOCATION + name + ".frag";
+            return Path.Combine(Directory.GetCurrentDirectory(), "Resources",  SHADER_LOCATION + name + ".frag");
         }
 
         return "";
@@ -858,6 +858,8 @@ static class Program
         FontStash.DrawText(Width - 220, 56, fpsLast.ToString("0.00") + " fps");
         //FontStash.DrawText(20, 144, $"Active chunk - X: {activeChunk.X}; Y: {activeChunk.Y}");
         FontStash.DrawText(20, 100, $"Seed: {seed}");
+        FontStash.DrawText(20, Height - 44, "letocma1 - pgrf2 - 4.5.2026");
+        FontStash.DrawText(20, Height - 88, "WASD - Movement, Mouse - Look, Left click - Break block");
         string msg = "Press 'R' to respawn.";
         FontStash.DrawText(Width / 2f - msg.Length * 9, Height - 44, msg);
         

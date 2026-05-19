@@ -1,11 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "9v8Ftbh/Gfk=",
+  "dgSpecHash": "4htB6xYMz+s=",
   "success": true,
   "projectFilePath": "C:\\Users\\marti\\RiderProjects\\GLCraft\\GLCraft\\GLCraft.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\marti\\.nuget\\packages\\microsoft.dotnet.platformabstractions\\3.1.6\\microsoft.dotnet.platformabstractions.3.1.6.nupkg.sha512",
     "C:\\Users\\marti\\.nuget\\packages\\microsoft.extensions.dependencymodel\\9.0.9\\microsoft.extensions.dependencymodel.9.0.9.nupkg.sha512",
+    "C:\\Users\\marti\\.nuget\\packages\\microsoft.net.illink.tasks\\10.0.0-preview.4.25258.110\\microsoft.net.illink.tasks.10.0.0-preview.4.25258.110.nupkg.sha512",
     "C:\\Users\\marti\\.nuget\\packages\\noisedotnet\\1.0.2\\noisedotnet.1.0.2.nupkg.sha512",
     "C:\\Users\\marti\\.nuget\\packages\\safestbimagesharp\\2.22.4\\safestbimagesharp.2.22.4.nupkg.sha512",
     "C:\\Users\\marti\\.nuget\\packages\\silk.net\\2.23.0\\silk.net.2.23.0.nupkg.sha512",
@@ -35,7 +36,10 @@
     "C:\\Users\\marti\\.nuget\\packages\\silkynvg.text\\1.2.1\\silkynvg.text.1.2.1.nupkg.sha512",
     "C:\\Users\\marti\\.nuget\\packages\\silkynvg.tools\\1.2.1\\silkynvg.tools.1.2.1.nupkg.sha512",
     "C:\\Users\\marti\\.nuget\\packages\\silkynvg.transforms\\1.2.1\\silkynvg.transforms.1.2.1.nupkg.sha512",
-    "C:\\Users\\marti\\.nuget\\packages\\ultz.native.glfw\\3.4.0\\ultz.native.glfw.3.4.0.nupkg.sha512"
+    "C:\\Users\\marti\\.nuget\\packages\\ultz.native.glfw\\3.4.0\\ultz.native.glfw.3.4.0.nupkg.sha512",
+    "C:\\Users\\marti\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\10.0.0-preview.4.25258.110\\microsoft.netcore.app.runtime.win-x64.10.0.0-preview.4.25258.110.nupkg.sha512",
+    "C:\\Users\\marti\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\10.0.0-preview.4.25258.110\\microsoft.windowsdesktop.app.runtime.win-x64.10.0.0-preview.4.25258.110.nupkg.sha512",
+    "C:\\Users\\marti\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\10.0.0-preview.4.25258.110\\microsoft.aspnetcore.app.runtime.win-x64.10.0.0-preview.4.25258.110.nupkg.sha512"
   ],
   "logs": []
 }
